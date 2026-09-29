@@ -1,0 +1,55 @@
+# Tạo bản phát hành (Release) kèm gói demo tĩnh và bộ dữ liệu.
+#
+# Cách dùng:  git tag v1.0.0 && git push origin v1.0.0
+name: Tạo bản phát hành
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tên thẻ phiên bản, ví dụ v1.0.0"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Cài đặt phụ thuộc
+        run: python -m pip install --quiet -r requirements.txt
+
+      - name: Sinh dữ liệu và dựng bản tĩnh
+        run: |
+          python data/generate_sample_dataset.py
+          python scripts/build_static_site.py
+
+      - name: Chạy kiểm thử
+        run: python -m pytest -q
+
+      - name: Đóng gói
+        run: |
+          mkdir -p dist
+          zip -r dist/la-chan-so-demo-tinh.zip site
+          zip -j dist/bo-du-lieu.zip data/dataset_thcs_scam.jsonl data/dataset_demo_60.jsonl
+
+      - name: Tạo Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.inputs.tag || github.ref_name }}
+        run: |
+          gh release create "$TAG" dist/*.zip \
+            --title "Lá Chắn Số $TAG" \
+            --notes "Bản demo tĩnh (mở trực tiếp bằng trình duyệt, không cần máy chủ) và bộ dữ liệu huấn luyện.
+
+          Xem bản demo trực tuyến tại trang GitHub Pages của kho mã nguồn này."
