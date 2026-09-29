@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>AI Hỗ trợ kiểm tra lừa đảo</title>
+<meta name="description" content="Công cụ AI giúp học sinh THCS nhận biết tin nhắn lừa đảo và rèn kỹ năng an toàn số." />
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="engine.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700&display=swap" rel="stylesheet" />
+<style>
+  :root { --safe:#38A169; --warn:#D69E2E; --danger:#E53E3E; }
+  body { font-family:'Be Vietnam Pro', system-ui, sans-serif; font-size:17px; }
+  .fade-in { animation: fade .35s ease-out both; }
+  @keyframes fade { from { opacity:0; transform:translateY(10px);} to {opacity:1; transform:none;} }
+  mark { background:#FEF08A; padding:0 2px; border-radius:4px; font-weight:600; }
+  .opt:disabled { cursor:default; }
+
+  /* --- Giao dien du phong khi khong tai duoc TailwindCSS (may khong co Internet) --- */
+  body.no-tw { background:#f8fafc; color:#1e293b; margin:0; }
+  body.no-tw .max-w-3xl { max-width:760px; margin:0 auto; padding:16px; }
+  body.no-tw header { text-align:center; margin-bottom:24px; }
+  body.no-tw h1 { font-size:2rem; margin:0 0 8px; }
+  body.no-tw h2 { font-size:1.5rem; margin:0 0 4px; }
+  body.no-tw h3 { font-size:1.15rem; margin:0 0 8px; }
+  body.no-tw section, body.no-tw #result > div {
+    background:#fff; border:1px solid #e2e8f0; border-radius:16px; padding:20px; margin-bottom:16px;
+  }
+  body.no-tw textarea, body.no-tw select {
+    width:100%; box-sizing:border-box; font:inherit; padding:12px;
+    border:2px solid #e2e8f0; border-radius:12px;
+  }
+  body.no-tw select { width:auto; }
+  body.no-tw #checkBtn {
+    width:100%; margin-top:12px; padding:14px; font-size:1.15rem; font-weight:700;
+    color:#fff; background:#2563eb; border:0; border-radius:12px; cursor:pointer;
+  }
+  body.no-tw .sample {
+    font-size:.9rem; background:#f1f5f9; border:1px solid #e2e8f0;
+    border-radius:999px; padding:6px 12px; margin:0 6px 6px 0; cursor:pointer;
+  }
+  body.no-tw .opt {
+    display:block; width:100%; text-align:left; font:inherit; background:#fff;
+    border:2px solid #e2e8f0; border-radius:12px; padding:12px; margin-bottom:8px; cursor:pointer;
+  }
+  body.no-tw ul, body.no-tw ol { padding-left:20px; }
+  body.no-tw .list-none { list-style:none; padding-left:0; }
+  body.no-tw #result > div:first-child { border-left:8px solid #94a3b8; }
+  body.no-tw #result > div.lv-SAFE       { border-left-color:var(--safe); background:#f0fff4; }
+  body.no-tw #result > div.lv-SUSPICIOUS { border-left-color:var(--warn); background:#fffbeb; }
+  body.no-tw #result > div.lv-DANGEROUS  { border-left-color:var(--danger); background:#fff5f5; }
+  body.no-tw .opt-correct { border-color:var(--safe); background:#f0fff4; }
+  body.no-tw .opt-wrong { border-color:var(--danger); background:#fff5f5; }
+  body.no-tw .opt-dim { opacity:.6; }
+  body.no-tw .ev-chip {
+    display:inline-block; width:22px; height:22px; line-height:22px; text-align:center;
+    border-radius:999px; background:#e53e3e; color:#fff; font-size:.8rem; margin-right:8px; flex:0 0 auto;
+  }
+  body.no-tw .flex { display:flex; gap:10px; }
+  body.no-tw footer { text-align:center; color:#94a3b8; font-size:.9rem; }
+</style>
+</head>
+<body class="bg-slate-50 text-slate-800 min-h-screen">
+<div class="max-w-3xl mx-auto px-4 py-6 sm:py-10">
+
+  <!-- Header -->
+  <header class="text-center mb-8">
+    <h1 class="text-3xl sm:text-4xl font-bold text-slate-900"> 🤖 AI Hỗ trợ kiểm tra lừa đảo</h1>
+    <p class="mt-2 text-lg text-slate-600">Dán tin nhắn em nhận được vào đây, AI sẽ cho biết tin đó có an toàn không.</p>
+  </header>
+
+  <!-- Khung nhập -->
+  <section class="bg-white rounded-2xl shadow-sm border border-slate-200 p-5 sm:p-6">
+    <label for="message" class="block text-lg font-semibold mb-2">Nội dung tin nhắn</label>
+    <textarea id="message" rows="5" maxlength="2000"
+      class="w-full rounded-xl border-2 border-slate-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-100 p-4 text-lg outline-none resize-y"
+      placeholder="Ví dụ: Thầy Nam thể dục đây, nạp hộ thầy 2 thẻ Viettel 100k vào số này gấp nhé..."></textarea>
+
+    <div class="flex flex-wrap items-center gap-3 mt-3">
+      <label for="channel" class="text-base text-slate-600">Nhận từ:</label>
+      <select id="channel" class="rounded-lg border-2 border-slate-200 px-3 py-2 text-base">
+        <option>Zalo</option><option>Messenger</option><option>SMS</option>
+        <option>Discord</option><option>TikTok</option><option>Khác</option>
+      </select>
+      <span id="engineBadge" class="text-xs px-2 py-1 rounded-full bg-slate-100 text-slate-500">đang kết nối…</span>
+      <span id="counter" class="text-sm text-slate-400 ml-auto">0 / 2000</span>
+    </div>
+
+    <button id="checkBtn"
+      class="mt-4 w-full bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white text-xl font-bold py-4 rounded-xl shadow transition disabled:opacity-60">
+      🔍 Kiểm tra ngay
+    </button>
+
+    <div class="mt-4">
+      <p class="text-sm text-slate-500 mb-2">Hoặc thử nhanh một ví dụ:</p>
+      <div id="samples" class="flex flex-wrap gap-2"></div>
+    </div>
+  </section>
+
+  <!-- Ket qua -->
+  <section id="result" class="hidden mt-6 space-y-4"></section>
+
+  <footer class="mt-10 text-center text-sm text-slate-400">
+    <p>Dự án KHKT · Hệ thống AI cảnh báo tin nhắn lừa đảo & nâng cao kỹ năng an toàn số cho học sinh THCS</p>
+    <p class="mt-1">Kết quả của AI chỉ mang tính cảnh báo. Khi nghi ngờ, hãy hỏi bố mẹ hoặc thầy cô.</p>
+  </footer>
+</div>
+
+<script>
+const API = (location.protocol === 'file:' ? 'http://127.0.0.1:8000' : location.origin) + '/api/v1';
+
+const SAMPLES = [
+  ["Mạo danh thầy cô", "Thầy Nam thể dục đây, nạp hộ thầy 2 thẻ Viettel 100k vào số này gấp, mai lên lớp thầy gửi lại."],
+  ["Bẫy OTP / Robux", "Nhập mã OTP vừa gửi về điện thoại để nhận 1000 Robux miễn phí tại web robux-thcs.vip"],
+  ["Trúng thưởng giả", "Bạn là người may mắn trúng 1 xe đạp điện VinFast. Click vào link sau để xác nhận: http://bit.ly/nhan-thuong-thcs"],
+  ["Tin nhắn an toàn", "Mai nhớ mang vở bài tập Toán nhé, cô kiểm tra 15 phút đấy!"],
+  ["Nhóm lạ", "Mời bạn tham gia nhóm học tiếng Anh online miễn phí, vào nhóm để nhận tài liệu nhé."],
+];
+
+const THEME = {
+  SAFE:       { bg:'bg-green-50',  border:'border-green-500',  text:'text-green-700',  chip:'bg-green-600' },
+  SUSPICIOUS: { bg:'bg-yellow-50', border:'border-yellow-500', text:'text-yellow-700', chip:'bg-yellow-500' },
+  DANGEROUS:  { bg:'bg-red-50',    border:'border-red-500',    text:'text-red-700',    chip:'bg-red-600' },
+};
+
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+// Bôi vàng những cụm từ mà AI cho là đáng ngờ.
+function highlight(text, words) {
+  let html = esc(text);
+  [...(words || [])].sort((a, b) => b.length - a.length).forEach(w => {
+    if (!w || w.length < 2) return;
+    const safe = esc(w).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    html = html.replace(new RegExp(safe, 'gi'), m => `<mark>${m}</mark>`);
+  });
+  return html.replace(/\n/g, '<br>');
+}
+
+function renderSamples() {
+  $('samples').innerHTML = SAMPLES.map((s, i) =>
+    `<button data-i="${i}" class="sample text-sm bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-1.5 rounded-full border border-slate-200">${esc(s[0])}</button>`
+  ).join('');
+  document.querySelectorAll('.sample').forEach(btn => btn.onclick = () => {
+    $('message').value = SAMPLES[btn.dataset.i][1];
+    updateCounter();
+    check();
+  });
+}
+
+function updateCounter() { $('counter').textContent = `${$('message').value.length} / 2000`; }
+
+function render(data, originalText) {
+  const v = data.verdict, t = THEME[v.level] || THEME.SUSPICIOUS;
+  const ev = (data.trigger_evidence || []).filter(e => e.reason);
+  const quiz = data.interactive_quiz || {};
+
+  $('result').innerHTML = `
+    <!-- Thẻ kết quả -->
+    <div class="fade-in lv-${esc(v.level)} ${t.bg} border-l-8 ${t.border} rounded-2xl shadow-sm p-5 sm:p-6">
+      <div class="flex items-start gap-4">
+        <div class="text-5xl leading-none">${v.emoji || ''}</div>
+        <div class="flex-1">
+          <h2 class="text-2xl font-bold ${t.text}">${esc(v.headline)}</h2>
+          <p class="mt-1 text-lg font-semibold text-slate-700">${esc(v.badge_title)}</p>
+          <p class="mt-2 text-slate-700">${esc(data.summary)}</p>
+          <div class="mt-3 flex flex-wrap gap-2 text-sm">
+            <span class="${t.chip} text-white px-3 py-1 rounded-full">Độ tin cậy: ${Math.round((v.confidence_score || 0) * 100)}%</span>
+            <span class="bg-slate-200 text-slate-700 px-3 py-1 rounded-full">Xử lý trong ${data.meta?.process_time_ms ?? '?'} ms</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tin nhắn + từ khóa đáng ngờ -->
+    <div class="fade-in bg-white rounded-2xl border border-slate-200 p-5">
+      <h3 class="font-bold text-lg mb-2">📩 Tin nhắn của em</h3>
+      <p class="leading-relaxed text-slate-700">${highlight(originalText, data.highlight_words)}</p>
+    </div>
+
+    ${ev.length ? `
+    <!-- Vì sao AI kết luận như vậy -->
+    <div class="fade-in bg-white rounded-2xl border border-slate-200 p-5">
+      <h3 class="font-bold text-lg mb-3">🤖 Vì sao AI kết luận như vậy?</h3>
+      <ul class="space-y-3 list-none">
+        ${ev.map(e => `
+          <li class="flex gap-3">
+            <span class="ev-chip ${t.chip} text-white rounded-full w-6 h-6 flex items-center justify-center shrink-0 text-sm">!</span>
+            <div>
+              ${e.phrase ? `<p class="font-semibold text-slate-800">"${esc(e.phrase)}"</p>` : ''}
+              <p class="text-slate-600">${esc(e.reason)}</p>
+            </div>
+          </li>`).join('')}
+      </ul>
+      <p class="mt-4 p-3 bg-slate-50 rounded-xl text-slate-700">${esc(data.explanation)}</p>
+    </div>` : ''}
+
+    <!-- Việc cần làm ngay -->
+    <div class="fade-in bg-white rounded-2xl border border-slate-200 p-5">
+      <h3 class="font-bold text-lg mb-2">✅ Em nên làm gì?</h3>
+      <p class="font-semibold ${t.text} mb-2">${esc(data.primary_warning)}</p>
+      <ul class="space-y-2 text-slate-700 list-none">
+        ${(data.immediate_actions || []).map(s => `<li>${esc(s)}</li>`).join('')}
+      </ul>
+    </div>
+
+    <!-- Flashcard -->
+    ${data.flashcard ? `
+    <div class="fade-in bg-blue-50 border border-blue-200 rounded-2xl p-5">
+      <h3 class="font-bold text-lg mb-1">💡 ${esc(data.flashcard.title)}</h3>
+      <p class="text-slate-700">${esc(data.flashcard.tip)}</p>
+    </div>` : ''}
+
+    <!-- Mini-quiz -->
+    ${quiz.question ? `
+    <div class="fade-in bg-white rounded-2xl border border-slate-200 p-5">
+      <h3 class="font-bold text-lg mb-1">🎯 Thử tài 30 giây</h3>
+      <p class="text-slate-800 mb-3">${esc(quiz.question)}</p>
+      <div id="options" class="space-y-2">
+        ${(quiz.options || []).map(o => `
+          <button class="opt w-full text-left border-2 border-slate-200 hover:border-blue-400 rounded-xl px-4 py-3"
+                  data-id="${esc(o.id)}"><b>${esc(o.id)}.</b> ${esc(o.text)}</button>`).join('')}
+      </div>
+      <p id="quizFeedback" class="mt-3 hidden p-3 rounded-xl"></p>
+    </div>` : ''}
+  `;
+  $('result').classList.remove('hidden');
+
+  document.querySelectorAll('.opt').forEach(btn => btn.onclick = () => answerQuiz(btn, quiz));
+  $('result').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+async function answerQuiz(btn, quiz) {
+  const chosen = btn.dataset.id;
+  let res = { is_correct: chosen === quiz.correct, correct_option: quiz.correct, explanation: quiz.explanation };
+  try {
+    if (quiz.quiz_id) {
+      const r = await fetch(`${API}/learn/quiz/check`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ quiz_id: quiz.quiz_id, option_id: chosen })
+      });
+      if (r.ok) res = (await r.json()).result;
+    }
+  } catch (_) { /* chấm điểm ngay tại trình duyệt nếu không gọi được API */ }
+
+  document.querySelectorAll('.opt').forEach(b => {
+    b.disabled = true;
+    if (b.dataset.id === res.correct_option) b.className = 'opt opt-correct w-full text-left border-2 border-green-500 bg-green-50 rounded-xl px-4 py-3';
+    else if (b === btn) b.className = 'opt opt-wrong w-full text-left border-2 border-red-400 bg-red-50 rounded-xl px-4 py-3';
+    else b.className = 'opt opt-dim w-full text-left border-2 border-slate-200 rounded-xl px-4 py-3 opacity-60';
+  });
+
+  const fb = $('quizFeedback');
+  fb.className = `mt-3 p-3 rounded-xl ${res.is_correct ? 'bg-green-50 text-green-800' : 'bg-amber-50 text-amber-800'}`;
+  fb.innerHTML = `<b>${res.is_correct ? '🎉 Chính xác!' : '🤔 Chưa đúng rồi.'}</b> ${esc(res.explanation || '')}`;
+  fb.classList.remove('hidden');
+}
+
+function showError(message) {
+  $('result').innerHTML = `<div class="bg-amber-50 border border-amber-300 rounded-2xl p-5 text-amber-800">
+      <b>Không kiểm tra được.</b> ${esc(message)}
+    </div>`;
+  $('result').classList.remove('hidden');
+}
+
+// --- Bộ máy chạy ngay trong trình duyệt (dùng cho bản GitHub Pages hoặc khi mất mạng) ---
+let localEngine = null;
+let serverAvailable = null;
+
+async function getLocalEngine() {
+  if (localEngine) return localEngine;
+  if (typeof ScamEngine === 'undefined') return null;
+  try {
+    const res = await fetch('engine-data.json');
+    if (!res.ok) throw new Error('không tải được engine-data.json');
+    localEngine = ScamEngine.create(await res.json());
+    return localEngine;
+  } catch (_) { return null; }
+}
+
+function setEngineBadge(mode) {
+  const badge = $('engineBadge');
+  if (!badge) return;
+  if (mode === 'server') {
+    badge.textContent = '⚡ Máy chủ AI (có mô hình học máy)';
+    badge.className = 'text-xs px-2 py-1 rounded-full bg-blue-100 text-blue-700';
+  } else if (mode === 'local') {
+    badge.textContent = '💻 Chạy ngay trên máy của em';
+    badge.className = 'text-xs px-2 py-1 rounded-full bg-green-100 text-green-700';
+  } else {
+    badge.textContent = 'đang kết nối…';
+    badge.className = 'text-xs px-2 py-1 rounded-full bg-slate-100 text-slate-500';
+  }
+}
+
+/** Thử gọi máy chủ; nếu không có (bản tĩnh trên GitHub Pages) thì dùng bộ máy trong trình duyệt. */
+async function detectEngine() {
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 2500);
+    const res = await fetch(`${API}/health`, { signal: controller.signal });
+    clearTimeout(timer);
+    serverAvailable = res.ok;
+  } catch (_) {
+    serverAvailable = false;
+  }
+  if (!serverAvailable) await getLocalEngine();
+  setEngineBadge(serverAvailable ? 'server' : (localEngine ? 'local' : null));
+  return serverAvailable;
+}
+
+async function check() {
+  const content = $('message').value.trim();
+  if (!content) { showError('Em hãy dán nội dung tin nhắn cần kiểm tra nhé!'); return; }
+
+  const btn = $('checkBtn');
+  btn.disabled = true;
+  btn.textContent = '⏳ Đang phân tích...';
+  try {
+    if (serverAvailable === null) await detectEngine();
+
+    if (serverAvailable) {
+      const r = await fetch(`${API}/scan/quick-check`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content, channel: $('channel').value })
+      });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.message || data.detail || 'Máy chủ trả về lỗi.');
+      render(data.result, content);
+      return;
+    }
+
+    const engine = await getLocalEngine();
+    if (!engine) throw new Error('Không kết nối được máy chủ và cũng không nạp được bộ máy ngoại tuyến.');
+    setEngineBadge('local');
+    render(engine.analyze(content), content);
+  } catch (err) {
+    showError(err.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '🔍 Kiểm tra ngay';
+  }
+}
+
+// Neu CDN TailwindCSS khong tai duoc (khong co Internet) thi dung CSS du phong.
+if (!window.tailwind) document.body.classList.add('no-tw');
+
+$('checkBtn').onclick = check;
+$('message').addEventListener('input', updateCounter);
+$('message').addEventListener('keydown', e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) check(); });
+renderSamples();
+updateCounter();
+detectEngine();
+</script>
+</body>
+</html>
