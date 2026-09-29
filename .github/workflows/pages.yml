@@ -1,0 +1,65 @@
+# Phát hành bản demo tĩnh lên GitHub Pages.
+#
+# Trang tĩnh chạy hoàn toàn trong trình duyệt (frontend/engine.js + engine-data.json)
+# nên KHÔNG cần máy chủ Python — rất tiện để gửi link cho thầy cô, ban giám khảo.
+#
+# Lần đầu dùng: vào Settings → Pages → Build and deployment → Source: "GitHub Actions".
+name: Phát hành demo lên GitHub Pages
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "app/**"
+      - "frontend/**"
+      - "scripts/build_static_site.py"
+      - ".github/workflows/pages.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Dựng bản tĩnh
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Dựng thư mục site/
+        # Bước này chỉ dùng thư viện chuẩn của Python, không cần cài thêm gì.
+        run: python scripts/build_static_site.py
+
+      - name: Kiểm tra bộ máy JavaScript khớp với bản Python
+        # Bản chạy trong trình duyệt phải cho kết quả y hệt bản Python, nếu không
+        # học sinh xem trên web sẽ nhận cảnh báo khác với hệ thống thật.
+        run: |
+          python data/generate_sample_dataset.py --demo-only
+          python -m pip install --quiet pytest
+          python -m pytest tests/test_js_engine_parity.py -q
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    name: Đưa lên GitHub Pages
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
