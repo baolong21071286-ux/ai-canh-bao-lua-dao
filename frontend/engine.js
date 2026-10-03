@@ -217,7 +217,13 @@
   }
 
   // ------------------------------------------------------------- bộ máy chính
-  function createEngine(data) {
+  /**
+   * @param data    nội dung engine-data.json
+   * @param models  (tùy chọn) { tfidf: ScamModels.createTfidf(...) } — lớp TF-IDF chạy đồng bộ.
+   *                Điểm PhoBERT (bất đồng bộ) được truyền vào qua analyze(text, { transformerScores }).
+   */
+  function createEngine(data, models) {
+    models = models || {};
     const compiled = data.rules.map((rule) => ({
       rule,
       regexes: rule.patterns.map((p) => new RegExp(p, 'g')),
@@ -286,7 +292,8 @@
       return Math.abs(h);
     }
 
-    function analyze(text) {
+    function analyze(text, options) {
+      const opts = options || {};
       const started = (typeof performance !== 'undefined' ? performance.now() : Date.now());
       const original = String(text || '').trim();
       const [folded, map] = foldWithMap(original);
@@ -321,8 +328,37 @@
       if (safeScore && !hasHard) {
         ruleScore *= 1 - 0.5 * Math.min(0.6, safeScore);
         if (safeScore >= 0.4) ruleScore = Math.min(ruleScore, data.thresholds.dangerous - 0.02);
+        const identityOnly = data.identityOnlySignals || [];
+        if (!comboHits.length && activeSignals.size &&
+            Array.from(activeSignals).every((s) => identityOnly.indexOf(s) !== -1)) {
+          ruleScore = Math.min(ruleScore, data.thresholds.suspicious - 0.02);
+        }
       }
-      let score = hasHard ? Math.max(ruleScore, 0.85) : ruleScore;
+      // --- Trộn với các lớp mô hình (giống app/classifier.py) ---
+      const mlScores = opts.mlScores ||
+        (models.tfidf && matchText ? models.tfidf.predict(deleet(foldWithMap(matchText)[0])) : null);
+      const trScores = opts.transformerScores || null;
+      const riskOf = (s) => (s.DANGEROUS || 0) + 0.45 * (s.SUSPICIOUS || 0);
+      const components = [[data.modelWeights.rule, ruleScore]];
+      if (mlScores) components.push([data.modelWeights.ml, riskOf(mlScores)]);
+      if (trScores) components.push([data.modelWeights.transformer, riskOf(trScores)]);
+      const totalWeight = components.reduce((a, c) => a + c[0], 0);
+      let score = components.reduce((a, c) => a + c[0] * c[1], 0) / totalWeight;
+
+      // Ưu tiên Recall: mô hình rất chắc chắn thì không để tin nhắn rơi về mức An toàn.
+      [mlScores, trScores].forEach((s) => {
+        if (!s) return;
+        if ((s.DANGEROUS || 0) >= 0.8) score = Math.max(score, data.thresholds.suspicious + 0.05);
+        else if ((s.SUSPICIOUS || 0) >= 0.6) score = Math.max(score, data.thresholds.suspicious);
+      });
+      // Mô hình rất chắc chắn là an toàn thì được kéo điểm xuống (khi luật không có bằng chứng chắc chắn).
+      if (data.modelSafeVeto && !hasHard) {
+        const modelSafe = [mlScores, trScores].filter(Boolean).map((s) => s.SAFE || 0);
+        if (modelSafe.length && Math.min.apply(null, modelSafe) >= data.modelSafeVeto) {
+          score *= data.modelSafeVetoFactor;
+        }
+      }
+      if (hasHard) score = Math.max(score, 0.85);
       score = Math.round(Math.max(0, Math.min(1, score)) * 10000) / 10000;
 
       const level = score >= data.thresholds.dangerous ? 'DANGEROUS'
@@ -348,7 +384,10 @@
       }
 
       let explanation = data.explanations[category] || data.explanations.SAFE;
-      if (level !== 'SAFE' && category === 'SAFE') {
+      if (level !== 'SAFE' && category === 'SAFE' && (mlScores || trScores)) {
+        explanation = 'Mô hình AI thấy cách viết của tin nhắn này khá giống các tin nhắn lừa đảo đã gặp, ' +
+          'dù chưa tìm được từ khóa cụ thể. Em hãy cẩn thận và hỏi người lớn trước khi làm theo.';
+      } else if (level !== 'SAFE' && category === 'SAFE') {
         explanation = 'Tin nhắn có vài điểm đáng ngờ dù chưa tìm được từ khóa cụ thể. Em hãy cẩn thận và hỏi người lớn trước khi làm theo.';
       } else if (level === 'SUSPICIOUS' && category !== 'SAFE') {
         explanation = 'Chưa đủ căn cứ khẳng định là lừa đảo, nhưng tin nhắn có điểm đáng ngờ. ' + explanation;
@@ -394,7 +433,8 @@
         },
         meta: {
           channel: null, scam_category: category, risk_score: score,
-          engine: 'rule-based-js', process_time_ms: Math.round(elapsed * 100) / 100,
+          engine: ['rules'].concat(mlScores ? ['tfidf'] : [], trScores ? ['phobert'] : []).join('+'),
+          ml_scores: mlScores, transformer_scores: trScores, process_time_ms: Math.round(elapsed * 100) / 100,
           matched_rules: riskHits.map((h) => h.id).concat(comboHits.map((c) => c.id)),
         },
       };

@@ -30,6 +30,10 @@ SAFE_MESSAGES = [
     "Bạn cho tớ mượn quyển sách giáo khoa Lý mai tớ trả.",
     "Tổ 2 trực nhật sáng mai, các bạn đến sớm 15 phút giúp mình với.",
     "Cô gửi link bài tập trên https://olm.vn, các em làm trước thứ 3.",
+    # Thay co tu xung roi giao bai tap - khong hoi tien/OTP/link -> khong duoc bao nham.
+    "cô my đây con làm bài tập nhé",
+    "co my day con lam bai tap nhe",
+    "Thầy Nam toán đây, các em ôn tập chương 2 để mai kiểm tra 15 phút.",
 ]
 
 
@@ -46,6 +50,12 @@ def test_safe_messages_are_not_flagged(message):
     result = analyze(message, use_ml=False)
     assert result.risk_level == LEVEL_SAFE, (result.risk_score, result.matched_rules)
     assert result.evidence == []
+
+
+def test_teacher_self_intro_with_money_request_still_dangerous():
+    """Ban va bao nham o tren khong duoc lam mat canh bao khi co hoi tien."""
+    result = analyze("cô my đây con làm bài tập xong thì nạp hộ cô thẻ 100k nhé", use_ml=False)
+    assert result.risk_level == LEVEL_DANGEROUS, (result.risk_score, result.matched_rules)
 
 
 def test_suspicious_middle_band():

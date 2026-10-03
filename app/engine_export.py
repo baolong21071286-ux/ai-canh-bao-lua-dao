@@ -14,6 +14,7 @@ from app.classifier import (
     COMBOS,
     EXPLANATION_TEMPLATES,
     RULE_SUPPRESSIONS,
+    IDENTITY_ONLY_SIGNALS,
     STANDALONE_SIGNALS,
     RISK_SIGNALS,
     SUMMARY_TEMPLATES,
@@ -24,9 +25,14 @@ from app.config import (
     CATEGORY_PRIORITY,
     CATEGORY_TITLES,
     FRONTEND_DIR,
+    ML_WEIGHT,
+    MODEL_SAFE_VETO,
+    MODEL_SAFE_VETO_FACTOR,
+    RULE_WEIGHT,
     THEME,
     THRESHOLD_DANGEROUS,
     THRESHOLD_SUSPICIOUS,
+    TRANSFORMER_WEIGHT,
 )
 from app.domains import (
     BRAND_TOKENS,
@@ -64,6 +70,10 @@ def build_engine_data() -> dict:
         "categoryPriority": CATEGORY_PRIORITY,
         "riskSignals": sorted(RISK_SIGNALS),
         "standaloneSignals": sorted(STANDALONE_SIGNALS),
+        "modelWeights": {"rule": RULE_WEIGHT, "ml": ML_WEIGHT, "transformer": TRANSFORMER_WEIGHT},
+        "modelSafeVeto": MODEL_SAFE_VETO,
+        "modelSafeVetoFactor": MODEL_SAFE_VETO_FACTOR,
+        "identityOnlySignals": sorted(IDENTITY_ONLY_SIGNALS),
         "suppressions": {k: sorted(v) for k, v in RULE_SUPPRESSIONS.items()},
         "urlPattern": to_js_pattern(URL_IN_TEXT_RE.pattern),
         "rules": [
@@ -107,5 +117,3 @@ def build_engine_data() -> dict:
         "education": CONTENT,
         "goldenRules": GOLDEN_RULES,
     }
-
-

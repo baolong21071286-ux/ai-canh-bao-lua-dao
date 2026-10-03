@@ -244,6 +244,10 @@ RISK_SIGNALS = {
 }
 # Tin hieu du suc mot minh ket luan co rui ro (khong can luat khac di kem).
 STANDALONE_SIGNALS = {SIG_OTP, SIG_THREAT, SIG_SECRECY, SIG_MONEY, SIG_PRIZE, SIG_JOB, SIG_FREEBIE}
+# Tin hieu chi la "tu xung danh tinh" (vd: "co My day"): ban than no khong phai lua dao,
+# chi nguy hiem khi di kem yeu cau tien/OTP/link. Neu tin nhan chi co nhom tin hieu nay
+# va noi dung ro rang la binh thuong (bai tap, sinh hoat...) thi khong canh bao.
+IDENTITY_ONLY_SIGNALS = {SIG_IMPERSONATION}
 
 
 @dataclass
@@ -460,6 +464,10 @@ def analyze(
         # bang chung chac chan - nhieu nhat la muc VANG "can chu y".
         if safe_score >= 0.4:
             rule_score = min(rule_score, THRESHOLD_DANGEROUS - 0.02)
+        # Chi tu xung "co My day" + noi dung bai vo binh thuong, khong hoi tien/OTP/link
+        # -> khong du can cu nghi ngo (tranh bao nham tin nhan that cua thay co).
+        if not combo_hits and active_signals and active_signals <= IDENTITY_ONLY_SIGNALS:
+            rule_score = min(rule_score, THRESHOLD_SUSPICIOUS - 0.02)
 
     # --- Tron voi cac lop mo hinh (TF-IDF va/hoac PhoBERT) ---
     ml_scores = ml_model.predict_proba(pre.match_text) if use_ml else None

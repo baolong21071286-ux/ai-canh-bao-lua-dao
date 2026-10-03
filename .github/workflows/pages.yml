@@ -3,6 +3,12 @@
 # Trang tĩnh chạy hoàn toàn trong trình duyệt (frontend/engine.js + engine-data.json)
 # nên KHÔNG cần máy chủ Python — rất tiện để gửi link cho thầy cô, ban giám khảo.
 #
+# Cả 3 lớp AI đều chạy ngay trong trình duyệt:
+#   * Bộ luật              → engine-data.json
+#   * TF-IDF + Logistic    → tfidf-model.json (huấn luyện lại mỗi lần, mất vài giây)
+#   * PhoBERT (ONNX int8)  → phobert/ (huấn luyện 1-3 giờ trên CPU, được lưu cache;
+#                            chỉ huấn luyện lại khi dữ liệu hoặc mã huấn luyện thay đổi)
+#
 # Lần đầu dùng: vào Settings → Pages → Build and deployment → Source: "GitHub Actions".
 name: Phát hành demo lên GitHub Pages
 
@@ -14,6 +20,10 @@ on:
       - "app/**"
       - "frontend/**"
       - "scripts/build_static_site.py"
+      - "scripts/train_model.py"
+      - "scripts/train_transformer.py"
+      - "scripts/fetch_external_datasets.py"
+      - "data/dataset_thcs_scam.jsonl"
       - ".github/workflows/pages.yml"
   workflow_dispatch:
 
@@ -30,6 +40,9 @@ jobs:
   build:
     name: Dựng bản tĩnh
     runs-on: ubuntu-latest
+    # Repo rieng tu chay tren may 2 nhan: huan luyen PhoBERT lan dau mat ~3 gio.
+    # 350 phut (GitHub cho toi da 360) de lan dau khong bi cat ngang; cac lan sau lay tu cache.
+    timeout-minutes: 350
     steps:
       - uses: actions/checkout@v4
 
@@ -37,8 +50,48 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Dựng thư mục site/
-        # Bước này chỉ dùng thư viện chuẩn của Python, không cần cài thêm gì.
+      - name: Cài đặt thư viện (bản CPU của PyTorch cho nhẹ)
+        run: |
+          python -m pip install --quiet torch --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install --quiet -r requirements.txt transformers onnx onnxruntime
+
+      - name: Tải dữ liệu tin nhắn thật (CC BY 4.0)
+        # Không tải được thì vẫn huấn luyện trên dữ liệu học đường của nhóm.
+        continue-on-error: true
+        run: python scripts/fetch_external_datasets.py
+
+      - name: Huấn luyện TF-IDF + Logistic Regression
+        run: |
+          DATASETS="--dataset data/dataset_thcs_scam.jsonl"
+          if [ -f data/external/vi_sms_phishing.jsonl ]; then
+            DATASETS="$DATASETS --dataset data/external/vi_sms_phishing.jsonl"
+          fi
+          python scripts/train_model.py $DATASETS --split-mode split
+
+      - name: Lấy PhoBERT đã huấn luyện từ cache
+        id: phobert-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: models/phobert_scam
+          key: phobert-${{ hashFiles('data/dataset_thcs_scam.jsonl', 'scripts/train_transformer.py', 'scripts/fetch_external_datasets.py', 'app/transformer_model.py', 'app/datasets.py') }}
+
+      - name: Huấn luyện PhoBERT (chỉ khi cache chưa có, ~1-3 giờ)
+        if: steps.phobert-cache.outputs.cache-hit != 'true'
+        run: |
+          DATASETS="--dataset data/dataset_thcs_scam.jsonl"
+          if [ -f data/external/vi_sms_phishing.jsonl ]; then
+            DATASETS="$DATASETS --dataset data/external/vi_sms_phishing.jsonl"
+          fi
+          python scripts/train_transformer.py $DATASETS --split-mode split --epochs 3
+
+      - name: Lưu PhoBERT vào cache ngay (kể cả khi bước sau lỗi)
+        if: steps.phobert-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: models/phobert_scam
+          key: ${{ steps.phobert-cache.outputs.cache-primary-key }}
+
+      - name: Dựng thư mục site/ (kèm TF-IDF và PhoBERT)
         run: python scripts/build_static_site.py
 
       - name: Kiểm tra bộ máy JavaScript khớp với bản Python
@@ -46,7 +99,6 @@ jobs:
         # học sinh xem trên web sẽ nhận cảnh báo khác với hệ thống thật.
         run: |
           python data/generate_sample_dataset.py --demo-only
-          python -m pip install --quiet pytest
           python -m pytest tests/test_js_engine_parity.py -q
 
       - uses: actions/upload-pages-artifact@v3

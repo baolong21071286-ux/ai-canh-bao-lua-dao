@@ -1,0 +1,55 @@
+# ---- Mo hinh & san pham sinh ra (nang, tao lai bang script) ----
+# Mo hinh da huan luyen: scripts/train_model.py, scripts/train_transformer.py
+models/
+*.joblib
+*.onnx
+*.onnx.part*
+*.safetensors
+*.bin
+*.pt
+# Ban demo tinh: scripts/build_static_site.py
+site/
+# Goi phat hanh: .github/workflows/release.yml
+dist/
+
+# ---- Du lieu ----
+# Du lieu ngoai: khong commit, ton trong giay phep goc (xem docs/datasets.md)
+data/external/
+
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.ipynb_checkpoints/
+
+# ---- Moi truong ao & bi mat (KHONG BAO GIO commit token/khoa API) ----
+.venv/
+venv/
+env/
+.env
+.env.*
+
+# ---- Node (chay thu engine.js / onnxruntime-web) ----
+node_modules/
+npm-debug.log*
+
+# ---- Bo nho dem Hugging Face neu dat trong du an ----
+.cache/
+hf_cache/
+
+# ---- He dieu hanh & trinh soan thao ----
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/
+*.swp
+*~
+
+# ---- Nhat ky ----
+*.log

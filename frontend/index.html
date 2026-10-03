@@ -3,10 +3,11 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>AI nhận diện và cảnh báo tin nhắn lừa đảo</title>
+<title>AI Hỗ trợ kiểm tra lừa đảo</title>
 <meta name="description" content="Công cụ AI giúp học sinh THCS nhận biết tin nhắn lừa đảo và rèn kỹ năng an toàn số." />
 <script src="https://cdn.tailwindcss.com"></script>
 <script src="engine.js"></script>
+<script src="models.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700&display=swap" rel="stylesheet" />
 <style>
   :root { --safe:#38A169; --warn:#D69E2E; --danger:#E53E3E; }
@@ -18,6 +19,7 @@
 
   /* --- Giao dien du phong khi khong tai duoc TailwindCSS (may khong co Internet) --- */
   body.no-tw { background:#f8fafc; color:#1e293b; margin:0; }
+  body.no-tw .hidden { display:none; }
   body.no-tw .max-w-3xl { max-width:760px; margin:0 auto; padding:16px; }
   body.no-tw header { text-align:center; margin-bottom:24px; }
   body.no-tw h1 { font-size:2rem; margin:0 0 8px; }
@@ -65,7 +67,7 @@
 
   <!-- Header -->
   <header class="text-center mb-8">
-    <h1 class="text-3xl sm:text-4xl font-bold text-slate-900 whitespace-nowrap"> 🤖 AI nhận diện, cảnh báo tin nhắn lừa đảo</h1>
+    <h1 class="text-3xl sm:text-4xl font-bold text-slate-900"> 🤖 AI Hỗ trợ kiểm tra lừa đảo</h1>
     <p class="mt-2 text-lg text-slate-600">Dán tin nhắn em nhận được vào đây, AI sẽ cho biết tin đó có an toàn không.</p>
   </header>
 
@@ -84,6 +86,18 @@
       </select>
       <span id="engineBadge" class="text-xs px-2 py-1 rounded-full bg-slate-100 text-slate-500">đang kết nối…</span>
       <span id="counter" class="text-sm text-slate-400 ml-auto">0 / 2000</span>
+    </div>
+
+    <!-- Cac lop mo hinh chay trong trinh duyet (chi hien o ban tinh GitHub Pages) -->
+    <div id="modelPanel" class="hidden mt-3 text-sm bg-slate-50 border border-slate-200 rounded-xl p-3">
+      <div class="flex flex-wrap items-center gap-2">
+        <span class="text-slate-600">Lớp AI:</span>
+        <span class="text-xs px-2 py-1 rounded-full bg-green-100 text-green-700">Bộ luật</span>
+        <span id="tfidfChip" class="text-xs px-2 py-1 rounded-full bg-slate-200 text-slate-500">TF-IDF: chưa có</span>
+        <span id="phobertChip" class="text-xs px-2 py-1 rounded-full bg-slate-200 text-slate-500">PhoBERT: chưa bật</span>
+        <button id="phobertBtn" class="hidden ml-auto text-xs px-3 py-1 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700">Bật PhoBERT</button>
+      </div>
+      <p id="phobertNote" class="hidden mt-2 text-xs text-slate-500"></p>
     </div>
 
     <button id="checkBtn"
@@ -167,6 +181,7 @@ function render(data, originalText) {
           <div class="mt-3 flex flex-wrap gap-2 text-sm">
             <span class="${t.chip} text-white px-3 py-1 rounded-full">Độ tin cậy: ${Math.round((v.confidence_score || 0) * 100)}%</span>
             <span class="bg-slate-200 text-slate-700 px-3 py-1 rounded-full">Xử lý trong ${data.meta?.process_time_ms ?? '?'} ms</span>
+            ${data.meta?.engine ? `<span class="bg-slate-200 text-slate-700 px-3 py-1 rounded-full">Lớp AI: ${esc(data.meta.engine.replace('rules', 'bộ luật').replaceAll('+', ' + '))}</span>` : ''}
           </div>
         </div>
       </div>
@@ -266,16 +281,105 @@ function showError(message) {
 // --- Bộ máy chạy ngay trong trình duyệt (dùng cho bản GitHub Pages hoặc khi mất mạng) ---
 let localEngine = null;
 let serverAvailable = null;
+let phobert = null;          // { predict } khi đã nạp xong
+let phobertLoading = null;   // Promise khi đang tải
+let phobertManifest = null;
+
+const ORT_URL = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.30.0/dist/';
+const PHOBERT_PREF = 'phobert-enabled';
+
+function chip(id, text, on) {
+  const el = $(id);
+  if (!el) return;
+  el.textContent = text;
+  el.className = `text-xs px-2 py-1 rounded-full ${on ? 'bg-green-100 text-green-700' : 'bg-slate-200 text-slate-500'}`;
+}
+
+async function fetchJson(url) {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`không tải được ${url}`);
+  return res.json();
+}
 
 async function getLocalEngine() {
   if (localEngine) return localEngine;
   if (typeof ScamEngine === 'undefined') return null;
   try {
-    const res = await fetch('engine-data.json');
-    if (!res.ok) throw new Error('không tải được engine-data.json');
-    localEngine = ScamEngine.create(await res.json());
+    const data = await fetchJson('engine-data.json');
+    // Lớp TF-IDF: nhẹ (~1 MB khi nén) nên nạp luôn; thiếu thì chỉ chạy bộ luật.
+    let models = {};
+    try {
+      if (typeof ScamModels !== 'undefined') models.tfidf = ScamModels.createTfidf(await fetchJson('tfidf-model.json'));
+    } catch (_) { models = {}; }
+    localEngine = ScamEngine.create(data, models);
+    chip('tfidfChip', models.tfidf ? 'TF-IDF ✓' : 'TF-IDF: chưa có', !!models.tfidf);
+    await initPhobertPanel();
     return localEngine;
   } catch (_) { return null; }
+}
+
+async function initPhobertPanel() {
+  $('modelPanel').classList.remove('hidden');
+  try { phobertManifest = await fetchJson('phobert/manifest.json'); } catch (_) { phobertManifest = null; }
+  if (!phobertManifest) { chip('phobertChip', 'PhoBERT: chưa có', false); return; }
+  const mb = Math.round(phobertManifest.totalBytes / 1048576);
+  const btn = $('phobertBtn');
+  btn.textContent = `Bật PhoBERT (tải ~${mb} MB)`;
+  btn.classList.remove('hidden');
+  btn.onclick = () => loadPhobert();
+  let remembered = false;
+  try { remembered = localStorage.getItem(PHOBERT_PREF) === '1'; } catch (_) { /* bỏ qua */ }
+  if (remembered) loadPhobert();  // đã tải lần trước -> lấy lại từ bộ nhớ đệm của trình duyệt
+}
+
+function loadScript(src) {
+  return new Promise((resolve, reject) => {
+    const el = document.createElement('script');
+    el.src = src; el.onload = resolve; el.onerror = () => reject(new Error('không tải được ' + src));
+    document.head.appendChild(el);
+  });
+}
+
+function loadPhobert() {
+  if (phobert || phobertLoading || !phobertManifest) return phobertLoading;
+  const btn = $('phobertBtn'), note = $('phobertNote');
+  btn.disabled = true;
+  note.classList.remove('hidden');
+  chip('phobertChip', 'PhoBERT: đang tải…', false);
+  phobertLoading = (async () => {
+    try {
+      if (!window.ort) await loadScript(ORT_URL + 'ort.wasm.min.js');
+      ort.env.wasm.wasmPaths = ORT_URL;
+      ort.env.wasm.numThreads = 1;
+      const [spec, bytes] = await Promise.all([
+        fetchJson('phobert/tokenizer.json'),
+        ScamModels.fetchChunks('phobert/', phobertManifest.parts, (done, total) => {
+          note.textContent = `Đang tải mô hình PhoBERT: ${Math.round(done / 1048576)} / ${Math.round(total / 1048576)} MB (chỉ tải một lần, lần sau mở trang sẽ nhanh).`;
+        }, 'phobert-' + phobertManifest.version),
+      ]);
+      note.textContent = 'Đang khởi động PhoBERT…';
+      phobert = await ScamModels.createPhobert(ort, bytes, spec);
+      try { localStorage.setItem(PHOBERT_PREF, '1'); } catch (_) { /* bỏ qua */ }
+      chip('phobertChip', 'PhoBERT ✓', true);
+      btn.classList.add('hidden');
+      note.textContent = 'PhoBERT đã sẵn sàng — mô hình hiểu ngữ cảnh tiếng Việt, chạy ngay trên máy của em.';
+    } catch (err) {
+      chip('phobertChip', 'PhoBERT: lỗi', false);
+      note.textContent = 'Không nạp được PhoBERT (' + err.message + '). Hệ thống vẫn chạy bằng bộ luật + TF-IDF.';
+      btn.disabled = false;
+    } finally {
+      phobertLoading = null;
+    }
+  })();
+  return phobertLoading;
+}
+
+async function analyzeLocally(engine, content) {
+  let transformerScores = null;
+  if (phobert) {
+    try { transformerScores = await phobert.predict(content.trim()); } catch (_) { transformerScores = null; }
+  }
+  return engine.analyze(content, transformerScores ? { transformerScores } : {});
 }
 
 function setEngineBadge(mode) {
@@ -333,7 +437,7 @@ async function check() {
     const engine = await getLocalEngine();
     if (!engine) throw new Error('Không kết nối được máy chủ và cũng không nạp được bộ máy ngoại tuyến.');
     setEngineBadge('local');
-    render(engine.analyze(content), content);
+    render(await analyzeLocally(engine, content), content);
   } catch (err) {
     showError(err.message);
   } finally {
