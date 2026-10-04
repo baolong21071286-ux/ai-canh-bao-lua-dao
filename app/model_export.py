@@ -270,7 +270,7 @@ def export_phobert(out_dir: Path, model_dir: Optional[Path] = None, quantize: bo
         json.dumps(export_phobert_tokenizer(tokenizer, labels, MAX_LENGTH), ensure_ascii=False, separators=(",", ":")),
         encoding="utf-8",
     )
-import hashlib
+    import hashlib
 
     manifest = {
         "version": hashlib.sha256(data).hexdigest()[:12],
