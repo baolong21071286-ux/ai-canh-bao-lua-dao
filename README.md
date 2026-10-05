@@ -119,7 +119,7 @@ Phát hành tự động bằng GitHub Actions (`.github/workflows/pages.yml`):
 
 1. Vào **Settings → Pages → Build and deployment → Source: “GitHub Actions”** (chỉ làm một lần).
 2. Đẩy mã nguồn lên nhánh chính → workflow tự dựng và xuất bản.
-3. Trang demo xuất hiện tại `https://<tên-tài-khoản>.github.io/Fraud-message-detection/`.
+3. Trang demo xuất hiện tại `https://<tên-tài-khoản>.github.io/ai-canh-bao-lua-dao/`.
 
 Muốn tạo bản phát hành kèm tệp tải về: `git tag v1.0.0 && git push origin v1.0.0`
 (workflow `.github/workflows/release.yml` sẽ đóng gói bản demo tĩnh và bộ dữ liệu).
